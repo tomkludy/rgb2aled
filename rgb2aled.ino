@@ -90,7 +90,15 @@ void setup() {
 void loop() {
   asm volatile(
     "start_frame_%=: \n\t"
-    
+
+    // wait until we see low signal on D7 for at least 250 iterations. Each iteration takes:
+    // - sbic+jmp (when signal low): 3 cycles
+    // - dec: 1 cycle
+    // - brne: 2 cycles for the first 249 iterations, 1 cycle for the 250th iteration
+    // total cycles: 249*(3+1+2) + (3+1+1) = 1499 cycles
+    // total time: 1499 cycles * 62.5ns per cycle = 93687.5ns, or 93.69 μsecs
+    // WS2812 protocol requires minimum 50 μsecs for reset, but WS2812B uses 300 μsecs.
+    // So waiting for 93 μsecs (greater than 50, less than 300) should be good.
     "wait_reset_%=: \n\t"
       "ldi r22, 250 \n\t"
     "r_chk_%=: \n\t"
@@ -98,27 +106,66 @@ void loop() {
       "dec r22 \n\t" "brne r_chk_%= \n\t"
 
     // --- CAPTURE MACRO (Tuned for 16MHz) ---
+    // Timing:
+    // - ldi: 1 cycle (only on the first bit of any 8-bit color register)
+    // - sbis+rjmp: 3 cycles if D7 is currently low; 2 cycles if it is currently high
+    //   - best case: D7 goes high exactly on the cycle when sbis executes: next instruction is 2 cycles after start of high
+    //   - worst case: D7 is low when sbis executes and then goes high on the next cycle: next instruction is 4 cycles after start of high
+    // - nop (x4): 4 cycles
+    // - in: 1 cycle
+    //
+    // At this point we are somewhere between 7 and 9 cycles (0.43 to 0.56 μsecs) after high was first received.
+    // WS2812 protocol is 0.4 μsecs high for a zero, and 0.8 μsecs high for a one. Our range is within that. So the
+    // value we just read into r25 will either still be high (for a one) or will have dropped to low (for a zero).
+    //
+    // - lsl: 1 cycle
+    // - sbrc+ori: 2 cycles
+    //
+    // This puts us at 10 to 12 cycles (0.63 to 0.75 μsecs) into the bit reading. If we are reading a one then we
+    // need to wait for it to drop low; if we are reading a zero then its already low.
+    //
+    // - sbic+rjmp: 3 cycles while D7 is high; 2 cycles if is low
+    //   - best case: we are reading a zero so its already low: 2 cycles
+    //   - worst case: D7 goes low on the cycle immediately after sbic executes: next instruction is 4 cycles after the start of low
+    // - dec: 1 cycle
+    // - brne: 2 cycles (first 7 bits) / 1 cycle (8th bit)
+    // - com: 1 cycle
+    // 
+    // In case of a one, the protocol dictates we only have 0.45 μsecs of low signal before the next bit starts. Here
+    // we see it can take up to 8 cycles (0.5 μsecs) after sampling the current bit before we are ready to read the
+    // next bit, creating a 0.05 μsec "deficit". However if this happens, on the next bit we will look for the high
+    // state after at-most 2 additional cycles; or at-most 0.17 μsecs into a bit - still within the 0.4 μsecs expected
+    // for a high state even for a zero bit. Then we will sample that next bit either 7 cycles (if its the in the same
+    // 8 bit color register) or 8 cycles (if it is in the next color register) after we completed the previous bit.
+    // Worst case: 0.55 μsecs, still within the 0.4-0.8 μsecs window for sampling the next bit.
     ".macro CAPT_SHIELD reg \n\t"
       "ldi r24, 8 \n\t"
-    "10: sbis 0x09, 7 \n\t" "rjmp 10b \n\t"      
-      "nop \n\t" "nop \n\t" "nop \n\t" "nop \n\t" // 4 NOPs for center-sampling
-      "in r25, 0x09 \n\t" "lsl \\reg \n\t" 
-      "sbrc r25, 7 \n\t" "ori \\reg, 1 \n\t"     
-    "11: sbic 0x09, 7 \n\t" "rjmp 11b \n\t"      
-      "dec r24 \n\t" "brne 10b \n\t"
-      "com \\reg \n\t" 
+    "10: sbis 0x09, 7 \n\t" "rjmp 10b \n\t"       // loop until high signal detected on D7
+      "nop \n\t" "nop \n\t" "nop \n\t" "nop \n\t" // 4 NOPs for center-sampling. otherwise we might see "ringing" when the signal goes low->high.
+      "in r25, 0x09 \n\t" "lsl \\reg \n\t"        // read D7 to r25; left-shift output register making space in the low bit for what we are reading
+      "sbrc r25, 7 \n\t" "ori \\reg, 1 \n\t"      // set output register low bit to 0 (D7 low) or 1 (D7 high)
+    "11: sbic 0x09, 7 \n\t" "rjmp 11b \n\t"       // loop until low signal detected on D7
+      "dec r24 \n\t" "brne 10b \n\t"              // repeat 8 times, reading 8 bits total
+      "com \\reg \n\t"                            // ones-complement the output register, inverting it (same as setting it to 255-value)
     ".endm \n\t"
 
     "CAPT_SHIELD r16 \n\t" "CAPT_SHIELD r17 \n\t" "CAPT_SHIELD r18 \n\t" // Pixel 1
 
     #ifdef TWO_LEDS
       "CAPT_SHIELD r19 \n\t" "CAPT_SHIELD r20 \n\t" "CAPT_SHIELD r21 \n\t" // Pixel 2
-    #else
-      // Skip capture, keep LED2 pins off (255 = 0% duty in inverting mode)
-      "ldi r19, 255 \n\t" "ldi r20, 255 \n\t" "ldi r21, 255 \n\t"
     #endif
 
     // --- RELAY MACRO ---
+    // Now we need to enter a super-fast relay mode to pass through remaining pixels.
+    // Remember that we might be starting already with a 0.05 μsec deficit so we need
+    // to act fast.
+    //
+    // Timing:
+    // - ldi: 1 cycle - may increase deficit to ~0.12 μsec
+    // - sbis+rjmp: 3 cycles if low, 2 cycles if high. If we are in a deficit it will be high.
+    //   - worst case: miss start of high by 6 cycles (including deficit) = 0.375 μsecs, barely within 0.4 μsec tolerance!
+    // - sbi+nop: 3 cycles
+    // - sbis+cbi: 2-3 cycles
     "ldi r22, 200 \n\t"
     "px_loop_%=: \n\t"
       ".macro SMASH_SHIELD \n\t"
@@ -143,9 +190,11 @@ void loop() {
     "sts 0x88, r17 \n\t" // LED1 RED
     "sts 0x8A, r16 \n\t" // LED1 GREEN
     "sts 0xB3, r18 \n\t" // LED1 BLUE
-    "sts 0xB4, r20 \n\t" // LED2 RED
-    "sts 0x48, r19 \n\t" // LED2 GREEN
-    "sts 0x47, r21 \n\t" // LED2 BLUE
+    #ifdef TWO_LEDS
+      "sts 0xB4, r20 \n\t" // LED2 RED
+      "sts 0x48, r19 \n\t" // LED2 GREEN
+      "sts 0x47, r21 \n\t" // LED2 BLUE
+    #endif
 
     "jmp start_frame_%= \n\t"
 
