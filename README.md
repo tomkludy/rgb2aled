@@ -33,14 +33,28 @@ The board hooks up to a standard addressable-LED strip or controller, acts as 1 
 > [!WARNING]
 > Although any number of LEDs can be daisy chained from data-out, make sure if you have more than about 15 or so, that you inject power to the strip immediately after this board in the sequence. Each LED can use up to 60mA power at full brightness. A breadboard is usually only rated for 1-2 amps at most. Usually light strips have both an input connector and separate power and ground inputs - hook those directly to your 5V power supply to avoid sending that much current through this controller.
 
-The wiring diagram is shown [in the PDF](Schematic_RGB-to-ALED.pdf). This circuit will fit on a 1/2 size breadboard, though its tight: ![Breadboard Layout](rgb2aled - half breadboard layout.png)
+The schemetic diagram is shown [in the PDF](Schematic_RGB-to-ALED.pdf). This circuit will fit on a 1/2 size breadboard, though its a bit tight: <img src="rgb2aled - half breadboard layout.png" width="600"/>
 
 ## Software
-Next you need to program the Arduino to make it function. Download and open the free Arduino IDE and create a "sketch". Insert the code from the .ino file. If you have only one LED, comment out the line `#define TWO_LEDS`. This is important! The board will behave strangely if you don't set or unset TWO_LEDS correctly in the code, to match what you actually have connected to the device.
+Next you need to program the Arduino to make it function. Download and open the free Arduino IDE and create a "sketch". Insert the code from [the .ino file](rgb2aled.ino). If you have only one LED, comment out the line `#define TWO_LEDS`. **This is important!** The board will behave strangely if you don't set or unset `TWO_LEDS` correctly in the code, to match what you actually have connected to the device.
 
 Compile and upload it to your Arduino. Note: I had to select "Tools > Processor > ATMega328P (Old Processor)" for my boards or the code would not upload; YMMV based on the exact hardware you have.
 
-The 16MHz Arduino is just barely fast enough to handle the timing required by using hand-optimized assembly code with fully unrolled loops. As a result the code requires specific clock cycle timing and supports ONLY a 16MHz processor. There are 48MHz and faster Arduinos out there like the Nano r4 and the Nano 33, but those <u>will not work</u> with this software.
+The 16MHz Arduino is just barely fast enough to handle the timing required by using hand-optimized assembly code with fully unrolled loops. As a result the code requires specific clock cycle timing and supports ONLY a 16MHz processor. There are 48MHz and faster Arduinos out there like the Nano r4 and the Nano 33, but those <ins>will not work</ins> with this software.
 
 ## Putting it all together
-I created 3d-printable cases for these when they are built on the ElectroCookie 1/2-size breadboards; STLs are available in this repo. Use M2 x 4mm screws to connect the breadboard to the bottom of the case, then use M3 x 6mm screws to connect the top of the case to the bottom of the case. 
+I created 3d-printable cases for these when they are built on the ElectroCookie 1/2-size breadboards; STLs are available in this repo. Use M2 x 4mm screws to connect the breadboard to the bottom of the case, route the wires through the correct holes, then use M3 x 6mm screws to connect the top of the case to the bottom of the case. I also suggest a bit of glue gun where the wires pass through the case holes to hold them in place and prevent strain on the soldered wire connections.
+
+## Contributing
+If you want to help make this project better, feel free to contribute pull requests!
+
+## FAQ
+
+*Q: Will you sell me a pre-built version?*<br/>
+A: No, building electronics is a hobby for me, not my day job. Perhaps someone else would be willing to build it in a more professional package (proper PCB for example) and sell it. You could probably get it made by PCBWay or another circuit manufacturer.
+
+*Q: Can I build it and sell it myself?*<br/>
+A: Everything in this repo is licensed under the Creative Commons Attribution License, meaning it is free to use, modify, and redistribute as long as you include attribution to the original author. So, yes! If you do build and sell it, let me know so that I can link to your product.
+
+*Q: Will an Arduino Nano r4 or Nano 33 work?*<br/>
+A: I presume the hardware could work if wired the same way, but the software would need to be completely rewritten since the timing is completely different for those boards.
