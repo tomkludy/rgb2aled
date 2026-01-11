@@ -43,7 +43,9 @@ Compile and upload it to your Arduino. Note: I had to select "Tools > Processor 
 The 16MHz Arduino is just barely fast enough to handle the timing required by using hand-optimized assembly code with fully unrolled loops. As a result the code requires specific clock cycle timing and supports ONLY a 16MHz processor. There are 48MHz and faster Arduinos out there like the Nano r4 and the Nano 33, but those <ins>will not work</ins> with this software.
 
 ## Putting it all together
-I created 3d-printable cases for these when they are built on the ElectroCookie 1/2-size breadboards; STLs are available in this repo. Use M2 x 4mm screws to connect the breadboard to the bottom of the case, route the wires through the correct holes, then use M3 x 6mm screws to connect the top of the case to the bottom of the case. I also suggest a bit of glue gun where the wires pass through the case holes to hold them in place and prevent strain on the soldered wire connections.
+I created 3d-printable cases for these when they are built on the ElectroCookie 1/2-size breadboards; STLs are available in this repo. There are variations for 1 LED or 2 LEDs. Flip the top piece before printing to avoid using support.
+
+To assemble, use M2 x 4mm screws to connect the breadboard to the bottom of the case, route the wires through the correct holes, then use M3 x 6mm screws to connect the top of the case to the bottom of the case. I also suggest a bit of glue gun where the wires pass through the case holes to hold them in place and prevent strain on the soldered wire connections.
 
 ## Contributing
 If you want to help make this project better, feel free to contribute pull requests!
