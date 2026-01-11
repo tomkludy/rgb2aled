@@ -33,8 +33,7 @@ The board hooks up to a standard addressable-LED strip or controller, acts as 1 
 > [!WARNING]
 > Although any number of LEDs can be daisy chained from data-out, make sure if you have more than about 15 or so, that you inject power to the strip immediately after this board in the sequence. Each LED can use up to 60mA power at full brightness. A breadboard is usually only rated for 1-2 amps at most. Usually light strips have both an input connector and separate power and ground inputs - hook those directly to your 5V power supply to avoid sending that much current through this controller.
 
-## Building it
-The wiring diagram is shown in the PDF. This circuit will fit on a 1/2 size breadboard, though its tight. See the PNG for layout.
+The wiring diagram is shown [in the PDF](Schematic_RGB-to-ALED.pdf). This circuit will fit on a 1/2 size breadboard, though its tight: ![breadboard layout](rgb2aled - half breadboard layout.png)
 
 ## Software
 Next you need to program the Arduino to make it function. Download and open the free Arduino IDE and create a "sketch". Insert the code from the .ino file. If you have only one LED, comment out the line `#define TWO_LEDS`. This is important! The board will behave strangely if you don't set or unset TWO_LEDS correctly in the code, to match what you actually have connected to the device.
