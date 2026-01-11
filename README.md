@@ -34,16 +34,7 @@ The board hooks up to a standard addressable-LED strip or controller, acts as 1 
 > Although any number of LEDs can be daisy chained from data-out, make sure if you have more than about 15 or so, that you inject power to the strip immediately after this board in the sequence. Each LED can use up to 60mA power at full brightness. A breadboard is usually only rated for 1-2 amps at most. Usually light strips have both an input connector and separate power and ground inputs - hook those directly to your 5V power supply to avoid sending that much current through this controller.
 
 ## Building it
-The wiring diagram is shown in the PDF. This circuit will fit on a 1/2 size breadboard, though its tight:
-- Put the Arduino on columns 1-15, straddling the ravine, USB port facing left. Connect its 5V and GND pins to the appropriate power and ground rails.
-- Put 3 resistors on the top, spanning from the GND rail to breadboard columns 18, 23, and 28. If you cross the 5V rail, make sure you are not shorting it. Repeat the same connections, same columns, at the bottom if you want to support 2 LEDs.
-- Put 3 jumper wires on the top, spanning from the GND rail to columns 20, 25, and 30. Repeat the same connections, same columns, at the bottom if you want to support 2 LEDs.
-- Put 3 MOSFETs on the top; columns 18-20, 23-25, 28-30. Put 3 more MOSFETs on the bottom, same columns, if you want to support 2 LEDs. All 6 MOSFETS should have the gate on the left and source on the right.
-- Connect Arduino pins D9 (LED 1 red channel), D10 (LED 1 green channel), D11 (LED 1 blue channel) to the 3 MOSFETs on the top row, columns 18, 23, and 28 respectively. (Yes, these are the same columns with the resistors and the MOSFET Gates.) If you want to support 2 LEDs, also connect pins D3 (LED 2 red), D4 (LED 2 green), and D6 (LD 2 blue) to the 3 MOSFETs on the bottom row, again using columns 18, 23, and 28 respectively.
-- Connect your data-in (male JST connector center pin) to Arduino pin D7, and data-out (female JST connector center pin) to Arduino pin D2. Connect the power and ground pins of these connectors to the power and ground rails of the breadboard.
-- Connect an RGB LED connector to columns 19, 22, and 29 at the top (the MOSFET 1-3 drains- R,G,B channels, respectively), and connect its common anode to the 5V rail. If you are doing two LEDs, connect a second RGB LED connector to columns 19, 22, and 29 at the bottom (the MOSFET 4-6 drains - R,G,B channels).
-
-Double-check everything before you power on, especially check that you haven't shorted power and ground, and that the ground is common to all components. The timing required by the WS2812 protocol will not work if ground is not common.
+The wiring diagram is shown in the PDF. This circuit will fit on a 1/2 size breadboard, though its tight. See the PNG for layout.
 
 ## Software
 Next you need to program the Arduino to make it function. Download and open the free Arduino IDE and create a "sketch". Insert the code from the .ino file. If you have only one LED, comment out the line `#define TWO_LEDS`. This is important! The board will behave strangely if you don't set or unset TWO_LEDS correctly in the code, to match what you actually have connected to the device.
