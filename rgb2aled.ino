@@ -2,8 +2,8 @@
  * WS2812B Hyper-Optimized 1/2 Pixel Controller
  * -------------------------------------------
  * - Target: ATmega328P @ 16MHz (1 cycle = 62.5ns)
- * - Sampling Window: 562.5ns - 687.5ns (Cycles 9-11)
- * - Relay: 1:1 pulse preservation with constant 4-cycle latency.
+ * - Sampling Window: 500ns - 625ns (Cycles 8-10)
+ * - Relay: 1:1 pulse preservation with constant 6-cycle latency.
  * 
  * Captures two pixels (24 bits each, 48 bits total) from WS2812B data stream
  * and outputs the corresponding RGB values to two sets of 3 PWM pins each.
@@ -59,7 +59,7 @@
 // swapping the input and output pins as needed.
 //#define ALTERNATE_DATA_PINS
 #ifdef ALTERNATE_DATA_PINS
-  #undef TWO_LEDS // ALTERNATE_DATA_PINS only supports 1-LED mode because D6 is used for data in.
+  #undef TWO_LEDS // ALTERNATE_DATA_PINS only supports 1 LED mode because D6 is used for data in.
   #define DATA_IN    6
   #define DATA_OUT   7
 #else
@@ -97,6 +97,15 @@ void loop() {
     // --- MACROS ---
 
     // Reads 1 bit: Waits for Rise, Delays to Center, Samples, Waits for Fall
+    //
+    // Sampling window: 437.5ns - 562.5ns (Cycles 7-9)
+    //
+    // The Wemos S2 seems to have too short of a high bit pulse width, falling
+    // around ~650ns instead of 800ns as expected by WS2812 spec. So we sample
+    // earlier than the ideal center. This does run the risk that a LOW bit
+    // could be misread as HIGH if the pulse drops late; by the spec, a LOW bit
+    // can be as long as 500ns. However the Wemos S2 seems to have a maximum
+    // LOW pulse width of around 400ns in practice.
     ".macro READ_BIT reg \n\t"
       // 1. Wait for Rise
       // Best Case (Rise just before sample): 2 cycles latency.
@@ -104,24 +113,23 @@ void loop() {
       "1: sbis 0x09, %[data_in] \n\t" "rjmp 1b \n\t"
       // [Range: T=2 to T=4] [125ns - 250ns]
 
-      // 2. Delay to Center (6 NOPs + 1 LSL)
-      "nop \n\t" "nop \n\t" "nop \n\t" "nop \n\t" "nop \n\t" "nop \n\t" 
+      // 2. Delay to Center (4 NOPs + 1 LSL)
+      "nop \n\t" "nop \n\t" "nop \n\t" "nop \n\t"
       "lsl \\reg \n\t"        
-      // [Range: T=9 to T=11] [562.5ns - 687.5ns] 
+      // [Range: T=7 to T=9] [437.5ns - 562.5ns] 
       // *** SAMPLING POINT ***
-      // WS2812B '0' is HIGH for ~400ns. WS2812B '1' is HIGH for ~800ns.
-      // At T=9-11, '0' is guaranteed LOW, '1' is guaranteed HIGH.
+      // WS2812B '0' is HIGH for ~300-400ns. WS2812B '1' is HIGH for ~625-800ns.
 
       // 3. Sample (2 cycles total)
       // Path 1 (Low): sbic(2) = 2.
       // Path 2 (High): sbic(1) + ori(1) = 2.
       "sbic 0x09, %[data_in] \n\t"     
       "ori \\reg, 1 \n\t"     
-      // [Range: T=11 to T=13] [687.5ns - 812.5ns]
+      // [Range: T=9 to T=11] [562.5ns - 687.5ns]
 
       // 4. Wait for Fall (Sync Anchor)
-      // Best case (Already Low): sbic(2) = 2 cycles. [Exit T=13-15]
-      // Worst case (Wait for edge): sbic(1)+rjmp(2)+sbic(2) = 5 cycles. [Exit T=16-18]
+      // Best case (Already Low): sbic(2) = 2 cycles. [Exit T=11-13]
+      // Worst case (Wait for edge): sbic(1)+rjmp(2)+sbic(2) = 5 cycles. [Exit T=14-16]
       "2: sbic 0x09, %[data_in] \n\t" "rjmp 2b \n\t"
     ".endm \n\t"
 
@@ -134,8 +142,6 @@ void loop() {
     // --- 1. INITIAL POWER-ON SYNC ---
     "start_frame_%=: \n\t"
     #ifndef TWO_LEDS
-      // since we aren't reading any values for LED 2, we initialize the
-      // associated registers to OFF (255 due to inverted signal).
       "ldi r19, 255 \n\t" "ldi r20, 255 \n\t" "ldi r21, 255 \n\t"
     #endif
     "wait_reset_%=: \n\t"
@@ -160,7 +166,7 @@ void loop() {
 
     // --- 3. RELAY PHASE ---
     "relay_entry_%=: \n\t"
-      // Linear timeout: 256 checks * 3 cycles + 3 cycles = 771 cycles (~48.2us reset window)
+      // Linear timeout: 256 checks * 3 cycles + 4 cycles = 772 cycles (~48us reset window)
       // When LOW: 3 cycles per check (sbis + rjmp)
       // When HIGH occurs at the moment of sbis: 0 cycle delay
       // When HIGH occurs just after sbis: 2 cycles delay (rjmp)
@@ -184,19 +190,23 @@ void loop() {
       ".endr \n\t"
       "jmp update_now_%= \n\t"        // If we finish 256 reps, it's a RESET. Update LEDs.
 
+    // Relay bit handler — samples 1 cycle earlier than original to match
+    // the shifted READ_BIT sampling window. Output pulse widths remain
+    // within WS2812B spec:
+    //   0-bit output HIGH: 6 cycles = 375ns (spec allows 200-500ns)
+    //   1-bit output HIGH: 12 cycles = 750ns (spec allows 550-850ns)
     "relay_bit_%=: \n\t"
-      "nop \n\t"                    // Cycle 8
+                                        // LOW path  / HIGH path
+      // set LOW if 0, clock-synced:
+      "sbis 0x09, %[data_in] \n\t"      // 8         / 8-9   : Sample D7
+      "cbi 0x0b, %[data_out] \n\t"      // 9-10      / -     : Set D2 to match D7; 0-bit HIGH duration=6 cycles
+      "sbic 0x09, %[data_in] \n\t"      // 11-12     / 10    : Skip next if D7 HIGH
+      "rjmp .+0 \n\t"                   // -         / 11-12 : Sync cycle count
 
-      // set LOW if 0, clock-synced:   LOW   / HIGH cycle count:
-      "sbis 0x09, %[data_in] \n\t"  // 9     / 9-10  : Sample input
-      "cbi 0x0b, %[data_out] \n\t"  // 10-11 / -     : Set output LOW (at end of cycle 11) if input was LOW; 0-bit HIGH duration=7 cycles
-      "sbic 0x09, %[data_in] \n\t"  // 12-13 / 11    : Skip next if input is HIGH
-      "rjmp .+0 \n\t"               // -     / 12-13 : "2-Cycle NOP" to sync cycle count between 0/1 cases
+      "nop \n\t"                        // Cycle 13
 
-      "nop \n\t" "nop \n\t"         // Cycles 14-15
-
-      "cbi 0x0b, %[data_out] \n\t"  // Cycles 16-17: Set output LOW (at end of cycle 17); 1-bit HIGH duration=13 cycles
-      "jmp relay_entry_%= \n\t"     // Cycles 18-20: Loop back to check for next bit
+      "cbi 0x0b, %[data_out] \n\t"      // Cycles 14-15: set D2 LOW; 1-bit HIGH duration=11 cycles
+      "jmp relay_entry_%= \n\t"         // Cycles 16-18: Loop back to check for next bit
 
 
     // --- 4. UPDATE PHASE ---
@@ -211,9 +221,6 @@ void loop() {
     // Invert captured values for Common Anode LEDs
     "com r16 \n\t" "com r17 \n\t" "com r18 \n\t"
     #ifdef TWO_LEDS
-      // we only want to invert these if we read them from input;
-      // when !TWO_LEDS, we want to leave these untouched so they
-      // always contain the OFF value.
       "com r19 \n\t" "com r20 \n\t" "com r21 \n\t"
     #endif
 
@@ -226,7 +233,7 @@ void loop() {
     "sts 0x48, r19 \n\t" // OCR0B (D5)  - LED2 Green
     "sts 0x47, r21 \n\t" // OCR0A (D6)  - LED2 Blue
 
-    // Ready to capture bits for the next frame.
+    // Jump directly to capture bits for the next frame.
     "jmp capture_start_%= \n\t" 
 
     :
