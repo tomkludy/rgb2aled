@@ -144,7 +144,7 @@ void loop() {
     #ifndef TWO_LEDS
       // since we aren't reading any values for LED 2, we initialize the
       // associated registers to OFF (255 due to inverted signal).
-    "ldi r19, 255 \n\t" "ldi r20, 255 \n\t" "ldi r21, 255 \n\t"
+      "ldi r19, 255 \n\t" "ldi r20, 255 \n\t" "ldi r21, 255 \n\t"
     #endif
     "wait_reset_%=: \n\t"
       "ldi r22, 250 \n\t"
