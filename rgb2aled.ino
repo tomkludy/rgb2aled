@@ -2,7 +2,7 @@
  * WS2812B Hyper-Optimized 1/2 Pixel Controller
  * -------------------------------------------
  * - Target: ATmega328P @ 16MHz (1 cycle = 62.5ns)
- * - Sampling Window: 500ns - 625ns (Cycles 8-10)
+ * - Sampling Window: 437.5ns - 562.5ns (Cycles 7-9)
  * - Relay: 1:1 pulse preservation with constant 6-cycle latency.
  * 
  * Captures two pixels (24 bits each, 48 bits total) from WS2812B data stream
@@ -142,7 +142,9 @@ void loop() {
     // --- 1. INITIAL POWER-ON SYNC ---
     "start_frame_%=: \n\t"
     #ifndef TWO_LEDS
-      "ldi r19, 255 \n\t" "ldi r20, 255 \n\t" "ldi r21, 255 \n\t"
+      // since we aren't reading any values for LED 2, we initialize the
+      // associated registers to OFF (255 due to inverted signal).
+    "ldi r19, 255 \n\t" "ldi r20, 255 \n\t" "ldi r21, 255 \n\t"
     #endif
     "wait_reset_%=: \n\t"
       "ldi r22, 250 \n\t"
@@ -190,23 +192,18 @@ void loop() {
       ".endr \n\t"
       "jmp update_now_%= \n\t"        // If we finish 256 reps, it's a RESET. Update LEDs.
 
-    // Relay bit handler — samples 1 cycle earlier than original to match
-    // the shifted READ_BIT sampling window. Output pulse widths remain
-    // within WS2812B spec:
-    //   0-bit output HIGH: 6 cycles = 375ns (spec allows 200-500ns)
-    //   1-bit output HIGH: 12 cycles = 750ns (spec allows 550-850ns)
     "relay_bit_%=: \n\t"
-                                        // LOW path  / HIGH path
-      // set LOW if 0, clock-synced:
-      "sbis 0x09, %[data_in] \n\t"      // 8         / 8-9   : Sample D7
-      "cbi 0x0b, %[data_out] \n\t"      // 9-10      / -     : Set D2 to match D7; 0-bit HIGH duration=6 cycles
-      "sbic 0x09, %[data_in] \n\t"      // 11-12     / 10    : Skip next if D7 HIGH
-      "rjmp .+0 \n\t"                   // -         / 11-12 : Sync cycle count
 
-      "nop \n\t"                        // Cycle 13
+      // set LOW if 0, clock-synced:  // LOW path  / HIGH path
+      "sbis 0x09, %[data_in] \n\t"    // 8         / 8-9   : Sample D7
+      "cbi 0x0b, %[data_out] \n\t"    // 9-10      / -     : Set D2 to match D7; 0-bit HIGH duration=6 cycles
+      "sbic 0x09, %[data_in] \n\t"    // 11-12     / 10    : Skip next if D7 HIGH
+      "rjmp .+0 \n\t"                 // -         / 11-12 : Sync cycle count
 
-      "cbi 0x0b, %[data_out] \n\t"      // Cycles 14-15: set D2 LOW; 1-bit HIGH duration=11 cycles
-      "jmp relay_entry_%= \n\t"         // Cycles 16-18: Loop back to check for next bit
+      "nop \n\t"                      // Cycle 13
+
+      "cbi 0x0b, %[data_out] \n\t"    // Cycles 14-15: set output LOW (at end of cycle 15); 1-bit HIGH duration=11 cycles
+      "jmp relay_entry_%= \n\t"       // Cycles 16-18: Loop back to check for next bit
 
 
     // --- 4. UPDATE PHASE ---
@@ -221,6 +218,9 @@ void loop() {
     // Invert captured values for Common Anode LEDs
     "com r16 \n\t" "com r17 \n\t" "com r18 \n\t"
     #ifdef TWO_LEDS
+      // we only want to invert these if we read them from input;
+      // when !TWO_LEDS, we want to leave these untouched so they
+      // always contain the OFF value.
       "com r19 \n\t" "com r20 \n\t" "com r21 \n\t"
     #endif
 
